@@ -1,11 +1,13 @@
 <?php
 require_once __DIR__ . '/_auth.php';
+require_once dirname(__DIR__) . '/lib/token_blacklist.php';
+require_once dirname(__DIR__) . '/lib/request_token.php';
 
 $method = $_SERVER['REQUEST_METHOD'];
 
 // GET — 列出黑名单 Token + 今日各 IP 拉取统计
 if ($method === 'GET') {
-    $entries = read_token_blacklist();
+    $entries = token_blacklist_effective_entries();
     if (empty($entries)) {
         json_out(['ok' => true, 'entries' => []]);
     }
@@ -24,8 +26,8 @@ if ($method === 'GET') {
                 if (!preg_match('/^(\S+) \[[^\]]+\] "([^"]*)" (\d+)/', $line, $m)) continue;
                 [, $ip, $request, $status] = $m;
                 if ((int)$status !== 200) continue;
-                if (!preg_match('/[?&]token=([^&\s]+)/i', $request, $tm)) continue;
-                $tok = $tm[1];
+                $tok = ss_extract_token_from_request($request);
+                if ($tok === '') continue;
                 if (!isset($blacklistedSet[$tok])) continue;
                 $tokenIpCount[$tok][$ip] = ($tokenIpCount[$tok][$ip] ?? 0) + 1;
             }
@@ -58,14 +60,16 @@ if ($method === 'POST') {
 
     if (!$token) json_err('请输入 Token');
 
-    $entries = read_token_blacklist();
+    $entries = token_blacklist_load_manual();
     foreach ($entries as $e) {
         if ($e['token'] === $token) json_err('该 Token 已在黑名单中');
     }
 
     $entries[] = ['token' => $token, 'comment' => $comment, 'added_at' => date('Y-m-d H:i')];
-    if (!write_token_blacklist($entries)) json_err('写入失败，请检查文件权限');
-    json_out(['ok' => true]);
+    if (!token_blacklist_save_manual($entries)) json_err('写入失败，请检查文件权限');
+    $sync = token_blacklist_sync_map(true);
+    if (!$sync['ok']) json_err('同步Token拦截规则失败，请检查文件权限');
+    json_out(['ok' => true, 'nginx_reloaded' => $sync['nginx_reloaded']]);
 }
 
 // PATCH — 更新备注
@@ -76,15 +80,26 @@ if ($method === 'PATCH') {
 
     if (!$token) json_err('缺少 token 参数');
 
-    $entries = read_token_blacklist();
+    $entries = token_blacklist_load_manual();
     $found   = false;
     foreach ($entries as &$e) {
         if ($e['token'] === $token) { $e['comment'] = $comment; $found = true; break; }
     }
     unset($e);
 
+    if ($found) {
+        if (!token_blacklist_save_manual($entries)) json_err('写入失败，请检查文件权限');
+        json_out(['ok' => true]);
+    }
+
+    $autoEntries = token_blacklist_load_auto();
+    foreach ($autoEntries as &$e) {
+        if ($e['token'] === $token) { $e['comment'] = $comment; $found = true; break; }
+    }
+    unset($e);
+
     if (!$found) json_err('未找到该Token');
-    if (!write_token_blacklist($entries)) json_err('写入失败，请检查文件权限');
+    if (!token_blacklist_save_auto($autoEntries)) json_err('写入失败，请检查文件权限');
     json_out(['ok' => true]);
 }
 
@@ -95,21 +110,21 @@ if ($method === 'DELETE') {
 
     if (!$token) json_err('缺少 token 参数');
 
-    $entries = array_values(array_filter(read_token_blacklist(), fn($e) => $e['token'] !== $token));
-    if (!write_token_blacklist($entries)) json_err('写入失败，请检查文件权限');
-    json_out(['ok' => true]);
+    $manualEntries = array_values(array_filter(
+        token_blacklist_load_manual(),
+        static fn($e) => $e['token'] !== $token
+    ));
+    $autoEntries = array_values(array_filter(
+        token_blacklist_load_auto(),
+        static fn($e) => $e['token'] !== $token
+    ));
+
+    if (!token_blacklist_save_manual($manualEntries)) json_err('写入失败，请检查文件权限');
+    if (!token_blacklist_save_auto($autoEntries)) json_err('写入失败，请检查文件权限');
+
+    $sync = token_blacklist_sync_map(true);
+    if (!$sync['ok']) json_err('同步Token拦截规则失败，请检查文件权限');
+    json_out(['ok' => true, 'nginx_reloaded' => $sync['nginx_reloaded']]);
 }
 
 json_err('不支持的请求方式', 405);
-
-// ── 读写 Token 黑名单 ────────────────────────────────────────
-
-function read_token_blacklist(): array {
-    if (!file_exists(TOKEN_BLACKLIST_JSON)) return [];
-    $data = json_decode(file_get_contents(TOKEN_BLACKLIST_JSON), true);
-    return is_array($data) ? $data : [];
-}
-
-function write_token_blacklist(array $entries): bool {
-    return file_put_contents(TOKEN_BLACKLIST_JSON, json_encode($entries, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE), LOCK_EX) !== false;
-}

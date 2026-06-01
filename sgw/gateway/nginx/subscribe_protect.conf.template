@@ -1,5 +1,7 @@
 location ^~ ${SUBSCRIBE_PATH} {
 
+    if ($is_token_blacklisted = 1) { return 403 "Forbidden: Token blocked for 24h"; }
+
     if ($whitelist_ip = 1) { set $block_reason ""; }
 
     if ($is_cloud_ip = 1)       { set $block_reason "cloud"; }

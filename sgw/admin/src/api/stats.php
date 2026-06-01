@@ -1,5 +1,8 @@
 <?php
 require_once __DIR__ . '/_auth.php';
+require_once dirname(__DIR__) . '/lib/token_blacklist.php';
+require_once dirname(__DIR__) . '/lib/token_ua_guard.php';
+require_once dirname(__DIR__) . '/lib/request_token.php';
 
 $today  = date('d/M/Y');
 $ips    = [];   // ip => [total,200,403,429,444]  (today only)
@@ -12,12 +15,11 @@ $suspIpTokens = [];  // ip    => {token => true}
 
 // 读取Token黑名单（用于从统计中排除）
 $tokenBlacklist = [];
-if (file_exists(TOKEN_BLACKLIST_JSON)) {
-    $tbData = json_decode(file_get_contents(TOKEN_BLACKLIST_JSON), true);
-    if (is_array($tbData)) {
-        foreach ($tbData as $e) {
-            if (!empty($e['token'])) $tokenBlacklist[$e['token']] = true;
-        }
+$blockedTokenMeta = [];
+foreach (token_blacklist_effective_entries() as $e) {
+    if (!empty($e['token'])) {
+        $tokenBlacklist[$e['token']] = true;
+        $blockedTokenMeta[$e['token']] = $e;
     }
 }
 
@@ -54,13 +56,11 @@ if (file_exists(LOG_FILE)) {
                 elseif ($status === 429) $ips[$ip]['s429']++;
                 elseif ($status === 444) $ips[$ip]['s444']++;
 
-                if (preg_match('/[?&]token=([^&\s]+)/i', $request, $tm)) {
-                    $tok = $tm[1];
-                    if (!isset($tokenBlacklist[$tok])) {
-                        if (!isset($tokens[$tok])) $tokens[$tok] = ['count'=>0,'last_time'=>''];
-                        $tokens[$tok]['count']++;
-                        $tokens[$tok]['last_time'] = trim(preg_replace('/^\d+\/\w+\/\d+:/', '', preg_replace('/ \+\d+$/', '', $time)));
-                    }
+                $tok = ss_extract_token_from_request($request);
+                if ($tok !== '' && !isset($tokenBlacklist[$tok])) {
+                    if (!isset($tokens[$tok])) $tokens[$tok] = ['count'=>0,'last_time'=>''];
+                    $tokens[$tok]['count']++;
+                    $tokens[$tok]['last_time'] = trim(preg_replace('/^\d+\/\w+\/\d+:/', '', preg_replace('/ \+\d+$/', '', $time)));
                 }
 
                 if ($status === 403 && $ua !== '') {
@@ -72,9 +72,11 @@ if (file_exists(LOG_FILE)) {
             // ── 全量可疑分析（200 状态的订阅请求，排除白名单IP和Token黑名单）──
             if ($status === 200
                 && !isset($whitelistIps[$ip])
-                && preg_match('/[?&]token=([^&\s]+)/i', $request, $tm)
             ) {
-                $tok = $tm[1];
+                $tok = ss_extract_token_from_request($request);
+                if ($tok === '') {
+                    continue;
+                }
                 if (!isset($tokenBlacklist[$tok])) {
                     $suspTokenIps[$tok][$ip] = true;
                     $suspIpTokens[$ip][$tok]  = true;
@@ -133,11 +135,46 @@ foreach ($suspIpTokens as $ip => $tokSet) {
 }
 usort($suspIpList, fn($a,$b) => $b['token_count'] - $a['token_count']);
 
+$tokenUaAlertList = [];
+foreach (token_ua_guard_hits() as $row) {
+    $blocked = $blockedTokenMeta[$row['token']] ?? null;
+    $status = $row['status'];
+    if ($blocked) {
+        if (($blocked['source'] ?? '') === 'auto' || ($blocked['source'] ?? '') === 'manual+auto') {
+            $status = 'blocked';
+        } elseif ($status === 'warning') {
+            $status = 'manual_blocked';
+        }
+    }
+
+    $statusLabel = match ($status) {
+        'blocked' => '已自动封禁',
+        'manual_blocked' => '已手动封禁',
+        default => 'UA告警',
+    };
+
+    $tokenUaAlertList[] = [
+        'token' => $row['token'],
+        'ua_count' => $row['ua_count'],
+        'ua_samples' => $row['ua_samples'],
+        'ip_count' => $row['ip_count'],
+        'ip_samples' => $row['ip_samples'],
+        'last_seen' => $row['last_seen'],
+        'status' => $status,
+        'status_label' => $statusLabel,
+        'blocked_until' => $blocked['blocked_until'] ?? '',
+        'block_source' => $blocked['source_label'] ?? '',
+    ];
+}
+
 json_out([
-    'ok'          => true,
-    'top_ips'     => $topIps,
-    'top_tokens'  => $topTokens,
-    'bad_uas'     => $badUaList,
+    'ok' => true,
+    'top_ips' => $topIps,
+    'top_tokens' => $topTokens,
+    'bad_uas' => $badUaList,
     'susp_tokens' => $suspTokenList,
-    'susp_ips'    => $suspIpList,
+    'susp_ips' => $suspIpList,
+    'token_ua_alerts' => $tokenUaAlertList,
+    'token_ua_warn_threshold' => TOKEN_UA_GUARD_WARN_UA,
+    'token_ua_ban_threshold' => TOKEN_UA_GUARD_BAN_UA,
 ]);

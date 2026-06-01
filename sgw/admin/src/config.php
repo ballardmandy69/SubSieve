@@ -16,9 +16,12 @@ define('UA_CUSTOM_CONF',    '/etc/nginx/subscribe/ua_custom.conf');
 define('UA_WHITELIST_JSON', '/etc/nginx/subscribe/ua_whitelist.json');
 define('UA_WHITELIST_CONF',    '/etc/nginx/subscribe/ua_whitelist.conf');
 define('TOKEN_BLACKLIST_JSON', '/etc/nginx/subscribe/token_blacklist.json');
+define('TOKEN_BLACKLIST_AUTO_JSON', '/etc/nginx/subscribe/token_blacklist_auto.json');
+define('TOKEN_BLACKLIST_MAP_CONF',  '/etc/nginx/subscribe/token_blacklist_map.conf');
 define('SETTINGS_JSON',     '/etc/nginx/subscribe/admin_settings.json');
 define('PROTECT_CONF',      '/etc/nginx/subscribe/protect.conf');
 define('DEPLOY_INFO_FILE',  '/var/log/subscribe/DEPLOY_INFO.txt');
+define('TOKEN_UA_GUARD_LOG', '/var/log/subscribe/token_ua_guard.log');
 
 // 读取持久化设置（覆盖环境变量）
 $_sg = [];
@@ -33,6 +36,10 @@ define('NGINX_RELOAD_SIGNAL',     '/etc/nginx/subscribe/.reload');
 define('WHITELIST_RELOAD_SIGNAL', '/etc/nginx/subscribe/.reload_whitelist');
 define('GATEWAY_PORT',      (int)(getenv('GATEWAY_PORT') ?: 443));
 define('SESSION_LIFETIME',  (int)(getenv('SESSION_LIFETIME') ?: 28800)); // 8小时
+define('TOKEN_UA_GUARD_LOOKBACK_HOURS', max(1, (int)(getenv('TOKEN_UA_GUARD_LOOKBACK_HOURS') ?: 24)));
+define('TOKEN_UA_GUARD_BAN_HOURS',      max(1, (int)(getenv('TOKEN_UA_GUARD_BAN_HOURS') ?: 24)));
+define('TOKEN_UA_GUARD_WARN_UA',        max(1, (int)(getenv('TOKEN_UA_GUARD_WARN_UA') ?: 3)));
+define('TOKEN_UA_GUARD_BAN_UA',         max(TOKEN_UA_GUARD_WARN_UA + 1, (int)(getenv('TOKEN_UA_GUARD_BAN_UA') ?: 5)));
 // 后台访问路径前缀，留空则不校验（例如 ef9d1566 → 必须访问 /ef9d1566 才能进入后台）
 define('ADMIN_SECRET_PATH', trim(trim(getenv('ADMIN_SECRET_PATH') ?: ''), '/'));
 

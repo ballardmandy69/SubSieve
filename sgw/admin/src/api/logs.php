@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/_auth.php';
+require_once dirname(__DIR__) . '/lib/request_token.php';
 
 $method = $_SERVER['REQUEST_METHOD'];
 
@@ -182,10 +183,7 @@ function parse_line(string $line): ?array {
 
     [, $ip, $time, $request, $status, $bytes, $ua] = $m;
 
-    $token = '';
-    if (preg_match('/[?&]token=([^&\s"]+)/i', $request, $tm)) {
-        $token = $tm[1];
-    }
+    $token = ss_extract_token_from_request($request);
 
     $timeShort = preg_replace('/ \+\d+$/', '', $time);
     if (preg_match('/^(\d{2})\/(\w{3})\/(\d{4}):(\d{2}:\d{2}:\d{2})$/', $timeShort, $dm)) {
@@ -202,6 +200,7 @@ function parse_line(string $line): ?array {
         'bytes'   => $bytes,
         'ua'      => $ua,
         'token'   => $token,
+        'is_subscribe' => ss_is_subscription_request($request),
     ];
 }
 

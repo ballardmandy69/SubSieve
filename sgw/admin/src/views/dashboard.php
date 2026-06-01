@@ -327,6 +327,22 @@ tr:hover td{background:rgba(99,102,241,.04)}
         </div>
         <div class="card">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+            <div class="card-title" style="margin-bottom:0">Token UA 告警</div>
+            <div style="display:flex;gap:4px">
+              <button class="mode-btn active" id="stats-tokenUaAlerts-10" onclick="setStatsLimit('tokenUaAlerts',10)">10</button>
+              <button class="mode-btn" id="stats-tokenUaAlerts-25" onclick="setStatsLimit('tokenUaAlerts',25)">25</button>
+              <button class="mode-btn" id="stats-tokenUaAlerts-50" onclick="setStatsLimit('tokenUaAlerts',50)">50</button>
+              <button class="mode-btn" id="stats-tokenUaAlerts-0" onclick="setStatsLimit('tokenUaAlerts',0)">全部</button>
+            </div>
+          </div>
+          <div style="font-size:10px;color:var(--text3);margin-bottom:10px">
+            规则：同一 Token 在最近 24 小时内出现 <span style="color:#f59e0b">4-5 个不同 UA</span> 仅告警，达到 <span style="color:#ef4444">6 个及以上</span> 自动封禁 24 小时。
+          </div>
+          <div id="token-ua-alerts"><div class="loading">加载中…</div></div>
+          <div id="stats-tokenUaAlerts-pg" class="page-controls" style="display:none;margin-top:10px"></div>
+        </div>
+        <div class="card">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
             <div class="card-title" style="margin-bottom:0">可疑 Token（被多IP拉取）</div>
             <div style="display:flex;gap:4px">
               <button class="mode-btn active" id="stats-suspTokens-10" onclick="setStatsLimit('suspTokens',10)">10</button>
@@ -457,7 +473,7 @@ tr:hover td{background:rgba(99,102,241,.04)}
           <button class="btn-primary" onclick="tbAdd()">添加</button>
         </div>
         <div class="apply-hint" style="margin-bottom:14px;color:#eab308">
-          ⚡ Token 黑名单<strong>不会直接拦截请求</strong>，仅用于监控追踪——黑名单内的 Token 不计入分析统计，此处显示今日各 IP 的拉取记录。如需真正阻断访问，请通过 IP 黑名单或 UA 封禁实现。
+          ⚡ 手动加入的 Token 会立即阻断订阅请求；同时系统会自动扫描日志，同一 Token 在最近24小时内出现 4-5 个不同 UA 时先告警，达到 6 个及以上时自动封禁 24 小时。
         </div>
         <div id="tb-list"><div class="loading">加载中…</div></div>
       </div>
@@ -573,8 +589,8 @@ let blacklistIpSet = new Set();
 let whitelistIpSet = new Set();
 let cloudCidrs = [];     // 云服务商CIDR列表，用于检测云IP
 let allStatsData = null; // 完整统计数据缓存
-let statsLimits = {ips: 10, tokens: 10, uas: 10, suspTokens: 10, suspIps: 10};
-let statsPages  = {ips:  1, tokens:  1, uas:  1, suspTokens:  1, suspIps:  1};
+let statsLimits = {ips: 10, tokens: 10, tokenUaAlerts: 10, uas: 10, suspTokens: 10, suspIps: 10};
+let statsPages  = {ips:  1, tokens:  1, tokenUaAlerts:  1, uas:  1, suspTokens:  1, suspIps:  1};
 let allBlEntries = [];   // 黑名单完整数据缓存
 let allWlEntries = [];   // 白名单完整数据缓存
 let wlCommentMap = {};   // ip → 白名单备注（供日志列显示）
@@ -789,7 +805,7 @@ function renderLogs() {
   const subOnly = document.querySelector('input[name="sub-filter"][value="subscribe"]').checked;
 
   let rows = allLogs.filter(l => {
-    if (subOnly && !l.request.includes('/api/v1/client/subscribe')) return false;
+    if (subOnly && !l.is_subscribe) return false;
     if (fIp     && !l.ip.toLowerCase().includes(fIp)) return false;
     if (fStatus && String(l.status) !== fStatus) return false;
     if (fToken  && !l.token.toLowerCase().includes(fToken)) return false;
@@ -1030,7 +1046,7 @@ async function quickAddWhitelistFromLog(ip) {
 async function loadStats() {
   const data = await apiFetch('/api/stats.php');
   if (!data.ok) {
-    ['top-ips','top-tokens','bad-uas','susp-tokens','susp-ips'].forEach(id => {
+    ['top-ips','top-tokens','token-ua-alerts','bad-uas','susp-tokens','susp-ips'].forEach(id => {
       document.getElementById(id).innerHTML = '<div class="empty">加载失败：' + esc(data.error||'未知错误') + '</div>';
     });
     toast('加载统计失败: ' + (data.error||''), 'err'); return;
@@ -1118,6 +1134,44 @@ function renderStats() {
       <span class="top-count" style="white-space:nowrap;margin-left:6px">${r.count}次</span>
       <span class="top-sub" style="margin-left:8px">${esc(r.last_time)}</span>
     </div>`).join('') : '<div class="empty">暂无数据</div>';
+
+  // Token UA 告警
+  const allTokenUaAlerts = data.token_ua_alerts || [];
+  const warnThreshold = Number(data.token_ua_warn_threshold || 3);
+  const banThreshold = Number(data.token_ua_ban_threshold || 5);
+  const tokenUaAlertsLimit = statsLimits.tokenUaAlerts;
+  const tokenUaAlertsPage  = statsPages.tokenUaAlerts;
+  const tokenUaAlerts = tokenUaAlertsLimit > 0
+    ? allTokenUaAlerts.slice((tokenUaAlertsPage-1)*tokenUaAlertsLimit, tokenUaAlertsPage*tokenUaAlertsLimit)
+    : allTokenUaAlerts;
+  renderStatsPagination('tokenUaAlerts', allTokenUaAlerts.length, tokenUaAlertsLimit);
+  document.getElementById('token-ua-alerts').innerHTML = tokenUaAlerts.length ? tokenUaAlerts.map(r => {
+    const statusColor = r.status === 'blocked' ? '#ef4444' : (r.status === 'manual_blocked' ? '#6366f1' : '#f59e0b');
+    const statusBg = r.status === 'blocked' ? 'rgba(239,68,68,.12)' : (r.status === 'manual_blocked' ? 'rgba(99,102,241,.12)' : 'rgba(245,158,11,.14)');
+    const statusBorder = r.status === 'blocked' ? 'rgba(239,68,68,.35)' : (r.status === 'manual_blocked' ? 'rgba(99,102,241,.35)' : 'rgba(245,158,11,.35)');
+    const detailBits = [];
+    if (r.last_seen) detailBits.push(`最近：${esc(r.last_seen)}`);
+    if (r.ip_samples && r.ip_samples.length) detailBits.push(`IP：${r.ip_samples.map(esc).join(', ')}`);
+    if (r.ua_samples && r.ua_samples.length) detailBits.push(`UA：${r.ua_samples.map(esc).join(' | ')}`);
+    const actionHtml = r.status === 'warning'
+      ? `<button class="add-btn-sm" style="margin-left:8px" onclick="quickBanToken('${esc(r.token)}')">手动拉黑</button>`
+      : (r.blocked_until ? `<span class="top-sub" style="white-space:nowrap">到期：${esc(r.blocked_until)}</span>` : `<span class="top-sub" style="white-space:nowrap">${esc(r.block_source || '')}</span>`);
+    return `
+    <div class="top-row" style="align-items:flex-start;gap:10px">
+      <div class="top-val" style="padding:0;display:flex;flex-direction:column;gap:6px;min-width:0">
+        <div class="token-cell" style="padding:0">
+          <span class="token-text" title="${esc(r.token)}">${esc(r.token)}</span>
+          <button class="copy-btn" data-val="${esc(r.token)}" onclick="copyText(this.dataset.val)">复制</button>
+        </div>
+        <div class="top-sub" style="font-size:11px;line-height:1.45;word-break:break-all">${detailBits.join('<br>')}</div>
+      </div>
+      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex-shrink:0">
+        <span style="font-size:11px;padding:3px 8px;border-radius:999px;border:1px solid ${statusBorder};background:${statusBg};color:${statusColor};font-weight:600;white-space:nowrap">${esc(r.status_label)}</span>
+        <span class="top-count" style="white-space:nowrap">${r.ua_count} 个UA / ${r.ip_count} 个IP</span>
+        ${actionHtml}
+      </div>
+    </div>`;
+  }).join('') : `<div class="empty">暂无 Token UA 告警。当前规则：超过 ${warnThreshold} 个不同 UA 告警，超过 ${banThreshold} 个不同 UA 自动封禁。</div>`;
 
   // UA TOP
   const allUas = data.bad_uas || [];
@@ -1619,19 +1673,27 @@ async function loadTokenBlacklist() {
   }
   const entries = data.entries || [];
   if (!entries.length) {
-    document.getElementById('tb-list').innerHTML = '<div class="empty">Token黑名单为空</div>';
+    document.getElementById('tb-list').innerHTML = '<div class="empty">当前没有生效中的 Token 封禁</div>';
     return;
   }
   document.getElementById('tb-list').innerHTML = `
-    <table><thead><tr><th>Token</th><th>今日拉取</th><th>备注</th><th>添加时间</th><th>操作</th></tr></thead>
+    <table><thead><tr><th>Token</th><th>状态</th><th>今日拉取</th><th>备注</th><th>添加时间</th><th>操作</th></tr></thead>
     <tbody>${entries.map(e => {
       const pullsHtml = e.today_pulls && e.today_pulls.length
         ? e.today_pulls.map(p => `<span style="font-size:11px;color:#94a3b8">${esc(p.ip)}<span style="color:#ef4444;margin-left:3px">${p.count}次</span></span>`).join('&ensp;')
         : '<span style="color:#475569;font-size:11px">今日无拉取</span>';
       const tok = e.token || '';
       const tokDisplay = tok.length > 16 ? tok.substr(0,8)+'…'+tok.slice(-4) : tok;
+      const sourceColor = e.source === 'auto' ? '#eab308' : (e.source === 'manual+auto' ? '#22c55e' : '#6366f1');
+      const statusHtml = `
+        <div style="display:flex;flex-direction:column;gap:4px">
+          <span style="font-size:11px;font-weight:600;color:${sourceColor}">${esc(e.source_label || '手动')}</span>
+          ${e.blocked_until ? `<span style="font-size:11px;color:#94a3b8">到期：${esc(e.blocked_until)}</span>` : '<span style="font-size:11px;color:#94a3b8">长期有效</span>'}
+          ${e.ua_count ? `<span style="font-size:11px;color:#f59e0b">触发：${esc(String(e.ua_count))} 个UA</span>` : ''}
+        </div>`;
       return `<tr>
         <td style="font-family:monospace;font-size:12px" title="${esc(tok)}">${esc(tokDisplay)}<button class="copy-btn" data-val="${esc(tok)}" onclick="copyText(this.dataset.val)" style="margin-left:4px">复制</button></td>
+        <td>${statusHtml}</td>
         <td>${pullsHtml}</td>
         ${makeCommentCell('/api/token_blacklist.php', 'token', tok, e.comment||'')}
         <td style="color:#64748b;font-size:11px;white-space:nowrap">${esc(e.added_at||'')}</td>
@@ -1668,6 +1730,16 @@ async function quickBanToken(token) {
     toast('✅ Token 已加入黑名单');
     if (allStatsData) {
       allStatsData.susp_tokens = (allStatsData.susp_tokens||[]).filter(r => r.token !== token);
+      allStatsData.token_ua_alerts = (allStatsData.token_ua_alerts || []).map(r =>
+        r.token === token
+          ? {
+              ...r,
+              status: 'manual_blocked',
+              status_label: '已手动封禁',
+              block_source: '手动',
+            }
+          : r
+      );
       renderStats();
     }
   } else toast(d.error||'操作失败','err');
