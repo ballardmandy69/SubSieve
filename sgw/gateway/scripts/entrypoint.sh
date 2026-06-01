@@ -14,7 +14,10 @@ envsubst '${V2B_BACKEND} ${V2B_HOST} ${SUBSCRIBE_PATH}' \
     < /etc/nginx/templates-src/subscribe_protect.conf.template \
     > /etc/nginx/subscribe/protect.conf
 
-cp /etc/nginx/templates-src/nginx.conf /etc/nginx/nginx.conf
+log "生成 nginx.conf ..."
+envsubst '${V2B_BACKEND} ${V2B_HOST}' \
+    < /etc/nginx/templates-src/nginx.conf \
+    > /etc/nginx/nginx.conf
 
 # 初始化空白名单
 [[ ! -f /etc/nginx/subscribe/whitelist_ips.txt ]] && touch /etc/nginx/subscribe/whitelist_ips.txt
