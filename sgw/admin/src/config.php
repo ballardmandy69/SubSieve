@@ -22,6 +22,9 @@ define('SETTINGS_JSON',     '/etc/nginx/subscribe/admin_settings.json');
 define('PROTECT_CONF',      '/etc/nginx/subscribe/protect.conf');
 define('DEPLOY_INFO_FILE',  '/var/log/subscribe/DEPLOY_INFO.txt');
 define('TOKEN_UA_GUARD_LOG', '/var/log/subscribe/token_ua_guard.log');
+define('APP_TIMEZONE', getenv('TZ') ?: 'Asia/Shanghai');
+
+date_default_timezone_set(APP_TIMEZONE);
 
 // 读取持久化设置（覆盖环境变量）
 $_sg = [];
@@ -71,6 +74,31 @@ function nginx_reload(): bool {
 
 function whitelist_reload(): bool {
     return file_put_contents(WHITELIST_RELOAD_SIGNAL, '1', LOCK_EX) !== false;
+}
+
+function log_time_to_timestamp(string $time): int {
+    $dt = DateTime::createFromFormat('d/M/Y:H:i:s O', $time);
+    return $dt ? $dt->getTimestamp() : 0;
+}
+
+function app_today_bounds(?int $now = null): array {
+    $tz = new DateTimeZone(APP_TIMEZONE);
+    $nowTs = $now ?? time();
+    $nowDt = (new DateTimeImmutable('@' . $nowTs))->setTimezone($tz);
+    $start = $nowDt->setTime(0, 0, 0);
+    $end = $start->modify('+1 day');
+
+    return [$start->getTimestamp(), $end->getTimestamp()];
+}
+
+function is_log_time_today(string $time, ?int $now = null): bool {
+    $ts = log_time_to_timestamp($time);
+    if ($ts <= 0) {
+        return false;
+    }
+
+    [$start, $end] = app_today_bounds($now);
+    return $ts >= $start && $ts < $end;
 }
 
 // ── V2B 数据库接口（预留，后续填充）─────────────────────────

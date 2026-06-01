@@ -149,7 +149,7 @@ if ($method === 'DELETE') {
 
 // ── GET — 返回日志列表 ──────────────────────────────────────
 $mode    = $_GET['mode'] ?? 'today';
-$today   = date('d/M/Y');
+$today   = date('Y-m-d');
 $maxRows = 3000;
 $logs    = [];
 
@@ -160,7 +160,14 @@ if (file_exists(LOG_FILE)) {
         while (($line = fgets($handle)) !== false) {
             $line = rtrim($line);
             if ($line === '') continue;
-            if ($mode === 'today' && !str_contains($line, "[$today:")) continue;
+            if ($mode === 'today') {
+                if (!preg_match('/^\S+ \[([^\]]+)\]/', $line, $m)) {
+                    continue;
+                }
+                if (!is_log_time_today($m[1])) {
+                    continue;
+                }
+            }
             $buffer[] = $line;
             if (count($buffer) > $maxRows) array_shift($buffer);
         }

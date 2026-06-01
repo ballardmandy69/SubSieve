@@ -15,16 +15,15 @@ if ($method === 'GET') {
     $blacklistedSet = array_flip(array_column($entries, 'token'));
 
     // 读取今日日志，统计每个黑名单 Token 被哪些 IP 拉取及次数
-    $today = date('d/M/Y');
     $tokenIpCount = []; // token => [ip => count]
 
     if (file_exists(LOG_FILE)) {
         $handle = fopen(LOG_FILE, 'r');
         if ($handle) {
             while (($line = fgets($handle)) !== false) {
-                if (!str_contains($line, "[$today:")) continue;
-                if (!preg_match('/^(\S+) \[[^\]]+\] "([^"]*)" (\d+)/', $line, $m)) continue;
-                [, $ip, $request, $status] = $m;
+                if (!preg_match('/^(\S+) \[([^\]]+)\] "([^"]*)" (\d+)/', $line, $m)) continue;
+                [, $ip, $time, $request, $status] = $m;
+                if (!is_log_time_today($time)) continue;
                 if ((int)$status !== 200) continue;
                 $tok = ss_extract_token_from_request($request);
                 if ($tok === '') continue;
