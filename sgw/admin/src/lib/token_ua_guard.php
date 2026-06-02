@@ -44,6 +44,9 @@ function token_ua_guard_collect(?int $now = null): array {
         if ($ua === '') {
             continue;
         }
+        if (is_ignored_stats_ua($ua)) {
+            continue;
+        }
 
         $token = ss_extract_token_from_request($request);
         if ($token === '') {

@@ -101,6 +101,19 @@ function is_log_time_today(string $time, ?int $now = null): bool {
     return $ts >= $start && $ts < $end;
 }
 
+function is_ignored_stats_ua(string $ua): bool {
+    $normalized = strtolower(trim($ua));
+    if ($normalized === '') {
+        return false;
+    }
+
+    if (str_contains($normalized, 'netflow')) {
+        return true;
+    }
+
+    return $normalized === 'yeshacys';
+}
+
 // ── V2B 数据库接口（预留，后续填充）─────────────────────────
 // TODO: 连接 V2B MySQL 查询 token 对应用户信息
 // function v2b_get_user_by_token(string $token): ?array { return null; }

@@ -45,9 +45,11 @@ if (file_exists(LOG_FILE)) {
 
             [, $ip, $time, $request, $status, , $ua] = $m;
             $status = (int)$status;
+            $ua = trim($ua);
+            $ignoreStatsUa = is_ignored_stats_ua($ua);
 
             // ── 今日统计 ──────────────────────────────────────────
-            if (is_log_time_today($time)) {
+            if (is_log_time_today($time) && !$ignoreStatsUa) {
                 if (!isset($ips[$ip])) $ips[$ip] = ['total'=>0,'s200'=>0,'s403'=>0,'s429'=>0,'s444'=>0];
                 $ips[$ip]['total']++;
                 if ($status === 200) $ips[$ip]['s200']++;
@@ -70,6 +72,7 @@ if (file_exists(LOG_FILE)) {
 
             // ── 全量可疑分析（200 状态的订阅请求，排除白名单IP和Token黑名单）──
             if ($status === 200
+                && !$ignoreStatsUa
                 && !isset($whitelistIps[$ip])
             ) {
                 $tok = ss_extract_token_from_request($request);

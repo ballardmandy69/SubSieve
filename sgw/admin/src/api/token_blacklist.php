@@ -21,9 +21,10 @@ if ($method === 'GET') {
         $handle = fopen(LOG_FILE, 'r');
         if ($handle) {
             while (($line = fgets($handle)) !== false) {
-                if (!preg_match('/^(\S+) \[([^\]]+)\] "([^"]*)" (\d+)/', $line, $m)) continue;
-                [, $ip, $time, $request, $status] = $m;
+                if (!preg_match('/^(\S+) \[([^\]]+)\] "([^"]*)" (\d+) (\S+) "([^"]*)"$/', $line, $m)) continue;
+                [, $ip, $time, $request, $status, , $ua] = $m;
                 if (!is_log_time_today($time)) continue;
+                if (is_ignored_stats_ua($ua)) continue;
                 if ((int)$status !== 200) continue;
                 $tok = ss_extract_token_from_request($request);
                 if ($tok === '') continue;
