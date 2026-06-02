@@ -189,6 +189,9 @@ function parse_line(string $line): ?array {
     if (!preg_match($pat, $line, $m)) return null;
 
     [, $ip, $time, $request, $status, $bytes, $ua] = $m;
+    if (is_ignored_admin_ua($ua)) {
+        return null;
+    }
 
     $token = ss_extract_token_from_request($request);
 

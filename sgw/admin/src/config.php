@@ -101,7 +101,7 @@ function is_log_time_today(string $time, ?int $now = null): bool {
     return $ts >= $start && $ts < $end;
 }
 
-function is_ignored_stats_ua(string $ua): bool {
+function is_ignored_admin_ua(string $ua): bool {
     $normalized = strtolower(trim($ua));
     if ($normalized === '') {
         return false;
@@ -112,6 +112,10 @@ function is_ignored_stats_ua(string $ua): bool {
     }
 
     return $normalized === 'yeshacys';
+}
+
+function is_ignored_stats_ua(string $ua): bool {
+    return is_ignored_admin_ua($ua);
 }
 
 // ── V2B 数据库接口（预留，后续填充）─────────────────────────
